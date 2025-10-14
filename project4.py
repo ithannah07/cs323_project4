@@ -222,8 +222,9 @@ def main():
     plt.yscale("log") 
     plt.legend()
     plt.grid()
-    plt.show()
     plt.savefig("average_runtime.png")
+    plt.show()
+ 
 
 
 
@@ -239,8 +240,9 @@ def main():
     # plt.yscale("log") 
     plt.legend()
     plt.grid()
-    plt.show()
     plt.savefig("accuracy.png")
+    plt.show()
+    
 
 
 
