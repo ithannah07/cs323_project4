@@ -5,7 +5,7 @@ import numpy as np
 from phe import paillier
 import matplotlib.pyplot as plt
 
-P = 1009
+P = 104729  # A large prime number for modulo operations in Shamir's Secret Sharing
 
 def generate_value(n, min_val = 0, max_val = 100):
     return [random.randint(min_val, max_val) for _ in range(n)]
@@ -25,58 +25,80 @@ def non_private(values):
 
 
 def paillier_average(values):
-    start = time.time()
+    start_total = time.time()
 
+    # 1. key generation
+    start_phase = time.time()
     public_key, private_key = paillier.generate_paillier_keypair()
+    gen_time = time.time() - start_phase
 
+    # 2. encryption
+    start_phase = time.time()
     enc_values = [public_key.encrypt(x) for x in values]
+    enc_time = time.time() - start_phase
 
+    # 3. aggregation
+    start_phase = time.time()
     enc_sum = enc_values[0]
     for i in range(1, len(enc_values)):
         enc_sum += enc_values[i]
-    
+    agg_time = time.time() - start_phase
+
+    # 4. decryption
+    start_phase = time.time()
     dec_sum = private_key.decrypt(enc_sum)
+    dec_time = time.time() - start_phase
 
     mean = round((dec_sum / len(values)), 3)
 
-    end = time.time()
-    elasped = computing_time(start, end)
+    total_time = time.time() - start_total
+    timings = {
+        "key_generation" : gen_time,
+        "encryption" : enc_time,
+        "aggregation" : agg_time,
+        "decryption" : dec_time,
+        "total_time" : total_time
+    }
 
-    return mean, elasped
+    return mean, timings
 
 def shamir_secret_sharing(values, n):
-    start = time.time()
-    # t = floor(n/2)
+    start_total = time.time()
     t = max(2, math.floor(n/2))
-    recovered = []
 
-    # 1. Define polynomial f(x) of degree t-1 for each value
-    for v in values:
-        coeffs = generate_polynomial(v, t)
+    # 1. polynomial generation
+    start_phase = time.time()
 
-        # 2. generating n share (i, f(i))
-        shares = generate_shares(coeffs, n)
-        # print("shares: ", shares)
-    
-        # 3. randomly select at least t shares (trusted parties
-        selected_shares = t_shares(shares, t)
-        # print("selected shares: ", selected_shares)
+    polys = [generate_polynomial(v, t) for v in values]
 
-        # 4. reconstructing the secret value
-        reconstruction_value = reconstruction(selected_shares)
-        # print("reconstruction value: ", reconstruction_value)
-        recovered.append(reconstruction_value)
+    polys_time = time.time() - start_phase
 
-        if reconstruction_value != v:
-            print("Original value: ", v, "Reconstructed value: ", reconstruction_value)
-            print("Error in reconstruction!")
+    # 2. share computation
+    start_phase = time.time()
+    sum_shares = []
+    for i in range(1, n+1):
+        total = 0
+        for coeffs in polys:
+            total = (total + computing_polynomial(coeffs, i)) % P
+        sum_shares.append((i, total))
+    share_time = time.time() - start_phase
 
-    # 5. computing the average after recovering all values
-    mean = float(round(sum(recovered) / len(recovered), 3))
-    end = time.time()
-    elasped = computing_time(start, end)
+    # 3. reconstruction
+    start_phase = time.time()
+    selected_shares = random.sample(sum_shares, t)
+    recovered = reconstruction(selected_shares) # reconstruct the sum of values
+    recon_time = time.time() - start_phase
 
-    return mean, elasped
+    mean = float(round(recovered / len(values), 3))
+
+    total_time = time.time() - start_total
+    timings = {
+        "poly_generation" : polys_time,
+        "share_computation" : share_time,
+        "reconstruction" : recon_time,
+        "total_time" : total_time
+    }
+    return mean, timings
 
 def generate_polynomial(value, t, p = P):
     degree = t - 1
@@ -88,16 +110,6 @@ def computing_polynomial(coeffs, x, p = P):
     for i, coeff in enumerate(coeffs):
         result = (result + coeff * pow(x, i, p)) % p
     return result
-
-def generate_shares(coeffs, n, p = P):
-    shares = []
-    for i in range(1, n + 1):
-        result = computing_polynomial(coeffs, i, p)
-        shares.append((i, result))
-    return shares
-
-def t_shares(shares, t):
-    return random.sample(shares, t)
 
 def mod_inverse(num, p = P):
     return pow(num, -1, p)
@@ -125,35 +137,58 @@ def reconstruction(selected_shares, p = P):
 
     return secret
 
+def differential_privacy(values, epsilon = 0.1):
+    start_total = time.time()
+    min_val = 0
+    max_val = 100
+
+    # 1. compute average
+    start_phase = time.time()
+    average = np.mean(values)
+    avg_time = time.time() - start_phase
+
+    # 2. add Laplace noise
+    start_phase = time.time()
+    sensitivity = (max_val - min_val) / len(values)
+    scale = sensitivity / epsilon
+    noise = np.random.laplace(0, scale)
+    noise_time = time.time() - start_phase
+
+    # 3. noise addition
+    start_phase = time.time()
+    noise_avg = average + noise
+    add_time = time.time() - start_phase
+
+    total_time = time.time() - start_total
+    timings = {
+        "average_computation" : avg_time,
+        "noise_generation" : noise_time,
+        "noise_addition" : add_time,
+        "total_time" : total_time
+    }
+
+    return noise_avg, timings
+
+
 def avg_runtime(function, *args, runs = 10):
     times = []
     for _ in range(runs):
         _, t = function(*args)
-        times.append(t)
+        if isinstance(t, dict):
+            times.append(t["total_time"])
+        else:
+            times.append(t)
     return sum(times) / runs
 
-def DP(values, epsilon = 0.1):
-    start = time.time()
+def avg_phase_runtime(function, *args, runs = 10):
+    results = []
+    for _ in range(runs):
+        _, timings = function(*args)
+        results.append(timings)
 
-    min_val = 0
-    max_val = 100 # range of values
-
-    sensitivity = (max_val - min_val) / len(values)
-    average = np.mean(values)
-    scale = sensitivity / epsilon
-    noise = np.random.laplace(0, scale)
-
-    noise_avg = average + noise
-
-    end = time.time()
-    elasped = computing_time(start, end)
-
-    return noise_avg, elasped
-
-
-
-
-
+    keys = results[0].keys()
+    avg_dict = {k: sum(d[k] for d in results) / runs for k in keys}
+    return avg_dict  # {'phase1': x, 'phase2': y, ...}
 
 
 def main():
@@ -182,6 +217,10 @@ def main():
     errors_shamir = []
     errors_dp = []
 
+    phase_paillier = []
+    phase_shamir = []
+    phase_dp = []
+
     for n in n_values:
         values = generate_value(n)
 
@@ -189,7 +228,7 @@ def main():
         avg_non_private, _ = non_private(values)
         avg_paillier, _ = paillier_average(values)
         avg_shamir, _ = shamir_secret_sharing(values, n)
-        avg_dp, _ = DP(values)
+        avg_dp, _ = differential_privacy(values)
 
         # compute errors (for accuracy analysis)
         errors_paillier.append(abs(avg_paillier - avg_non_private))
@@ -200,12 +239,18 @@ def main():
         avg_non_private_times = avg_runtime(non_private, generate_value(n))
         avg_paillier_times = avg_runtime(paillier_average, generate_value(n))
         avg_shamir_times = avg_runtime(shamir_secret_sharing, generate_value(n), n)
-        avg_dp_times = avg_runtime(DP, generate_value(n))
+        avg_dp_times = avg_runtime(differential_privacy, generate_value(n))
 
+        # runtime
         times_non_private.append(avg_non_private_times)
         times_paillier.append(avg_paillier_times)
         times_shamir.append(avg_shamir_times)
         times_dp.append(avg_dp_times)
+
+        # phase
+        phase_paillier.append(avg_phase_runtime(paillier_average, generate_value(n)))
+        phase_shamir.append(avg_phase_runtime(shamir_secret_sharing, generate_value(n), n))
+        phase_dp.append(avg_phase_runtime(differential_privacy, generate_value(n))) 
 
         
     
@@ -243,6 +288,42 @@ def main():
     plt.savefig("accuracy.png")
     plt.show()
     
+
+    # phase runtime for n = 100
+    idx = n_values.index(100)
+
+    p_phases = {k: v for k, v in phase_paillier[idx].items() if k != "total_time"}
+    s_phases = {k: v for k, v in phase_shamir[idx].items() if k != "total_time"}
+    d_phases = {k: v for k, v in phase_dp[idx].items() if k != "total_time"}
+
+    fig, ax = plt.subplots(1, 3, figsize=(14, 5))
+
+    # Paillier
+    ax[0].bar(p_phases.keys(), p_phases.values(), color='skyblue')
+    ax[0].set_title("Paillier Phases")
+    ax[0].set_ylabel("Runtime (seconds, log scale)")
+    ax[0].set_yscale("log")
+    ax[0].grid(True, which="both", ls="--", lw=0.5)
+    plt.setp(ax[0].get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+
+    # Shamir
+    ax[1].bar(s_phases.keys(), s_phases.values(), color='orange')
+    ax[1].set_title("Shamir Phases")
+    ax[1].set_yscale("log")
+    ax[1].grid(True, which="both", ls="--", lw=0.5)
+    plt.setp(ax[1].get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+
+    # DP
+    ax[2].bar(d_phases.keys(), d_phases.values(), color='lightgreen')
+    ax[2].set_title("Differential Privacy Phases")
+    ax[2].set_yscale("log")
+    ax[2].grid(True, which="both", ls="--", lw=0.5)
+    plt.setp(ax[2].get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+
+    plt.tight_layout(pad=2.0)
+    plt.savefig("phase_runtime_comparison.png")
+    plt.show()
+
 
 
 
