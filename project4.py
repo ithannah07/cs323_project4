@@ -188,23 +188,11 @@ def avg_phase_runtime(function, *args, runs = 10):
 
     keys = results[0].keys()
     avg_dict = {k: sum(d[k] for d in results) / runs for k in keys}
-    return avg_dict  # {'phase1': x, 'phase2': y, ...}
+    return avg_dict 
 
 
 def main():
     
-    # # just print out the values and their averages
-    # for n in [5, 10, 25]:
-    #     values = generate_value(n)
-    #     avg1, t1 = non_private(values)
-    #     avg2, t2 = paillier_average(values)
-    #     avg3, t3 = shamir_secret_sharing(values, n)
-    #     avg4, n_avg4, t4 = DP(values)
-    #     print("Non-private, average: ", avg1, "elapsed time: ", t1)
-    #     print("Paillier, average: ", avg2, "elapsed time: ", t2)
-    #     print("Shamir, average: ", avg3, "elapsed time: ", t3)
-    #     print("DP, average(original): ", avg4, "average(noise): ", n_avg4, "elapsed time: ", t4)
-    #     print()
     
     n_values = [5, 10, 25, 50, 100]
     times_non_private = []
